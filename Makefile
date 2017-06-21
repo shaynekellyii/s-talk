@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -g -Wall -Wextra -I -pthread.
+CFLAGS = -g -Wall -Wextra -I -pthread
 PROG = s-talk
 OBJS = main.o list.o
 
