@@ -41,13 +41,13 @@ static int localPort;
 static int remotePort;
 static struct sockaddr_in local_addr, remote_addr;
 static int sock;
+static pthread_t keyboardThread, terminalThread, sendThread, receiveThread;
 
 /***************************************************************
  * Global Functions                                            *
  ***************************************************************/
 
 int main(int argc, char *argv[]) {
-	pthread_t keyboardThread, terminalThread, sendThread, receiveThread;
 	char *keyboardMessage = "Keyboard thread";
 	char *terminalMessage = "Terminal thread";
 	char *sendMessage = "Send thread";
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
 	int iretKeyboard, iretTerminal, iretSend, iretReceive;
 
 	printf("\n***************************************************************\n");
-	printf("Welcome to s-talk! Setting up your session now...\n");
+	printf("* Welcome to s-talk! Setting up your session now...           *\n");
 	printf("***************************************************************\n\n");
 
 	/* Get network info from terminal args */
@@ -95,10 +95,6 @@ int main(int argc, char *argv[]) {
 	pthread_join(sendThread, NULL);
 	pthread_join(receiveThread, NULL);
 
-	printf("Keyboard thread returns: %d\n", iretKeyboard);
-	printf("Terminal thread returns: %d\n", iretTerminal);
-	printf("Send thread returns: %d\n", iretSend);
-	printf("Receive thread returns: %d\n", iretReceive);
 	exit(0);
 }
 
@@ -113,7 +109,7 @@ void InitSocket() {
 	sock = socket(AF_INET, SOCK_DGRAM, 0);
 	if (sock == -1) {
 		printf("INIT: ERROR - Couldn't open socket.\n");
-		die();
+		exit(0);
 	}
 
 	/* Setup remote address sockaddr_in struct */
@@ -125,7 +121,7 @@ void InitSocket() {
 	host = gethostbyname(hostName);
 	if (!host) {
 		printf("INIT: ERROR - Couldn't get remote address by name.\n");
-		die();
+		exit(0);
 	}
 	memcpy((void *)&remote_addr.sin_addr, host->h_addr_list[0], host->h_length);
 
@@ -139,7 +135,7 @@ void InitSocket() {
 	/* Bind socket */
 	if (bind(sock, (struct sockaddr *)&local_addr, sizeof(struct sockaddr_in)) < 0) {
 		printf("INIT: ERROR - Binding socket failed.\n");
-		die();
+		exit(0);
 	}
 	printf("INIT: Ready to initiate network connection.\n");
 }
@@ -163,19 +159,16 @@ void *AcceptKeyboardInput(void *ptr) {
 			read(TERMINAL_FD, buffer, BUF_SIZE);
 		} while (buffer[0] == '\0');
 
+		/* Add the message to the shared list of messages to be sent */
 		char *newStr = malloc(strlen(buffer) + 1);
 		strcpy(newStr, buffer);
+		pthread_mutex_lock(&mutex);
+		ListAdd(sendList, newStr);
+		pthread_mutex_unlock(&mutex);
 
-		if (strncmp(newStr, "!", (size_t)strlen("!")) != 0) {
-			pthread_mutex_lock(&mutex);
-			ListAdd(sendList, newStr);
-			pthread_mutex_unlock(&mutex);
-			/* Signal send thread that a user-typed message is added to the list to send */
-			pthread_cond_signal(&msg_avail_to_send);
-		} else {
-			/* Command to terminate the program was typed by the user (!) */
-			die();
-		}
+		/* Signal send thread that a user-typed message is added to the list to send */
+		pthread_cond_signal(&msg_avail_to_send);
+
 		/* Clear the buffer for the next non-blocking read calls */
 		memset(buffer, 0, BUF_SIZE);
 	}
@@ -206,6 +199,12 @@ void *PrintMessages(void *ptr) {
 			char *writeStr = (char *)ListTrim(receiveList);
 			write(TERMINAL_FD, writeStr, strlen(writeStr));
 			printf("[Sent by %s]\n\n", hostName);
+
+			/* Check if termination message was received */
+			if (writeStr[0] == '!') {
+				pthread_mutex_unlock(&mutex);
+				die();
+			}
 		}
 
 		/* Release the mutex when done printing messages */
@@ -234,8 +233,13 @@ void *SendToSocket(void *ptr) {
 		while (ListCount(sendList) > 0) {
 			char *sendStr = ListTrim(sendList);
 			if (sendto(sock, sendStr, strlen(sendStr), 0, (struct sockaddr *)&remote_addr, 
-				sizeof(struct sockaddr_in)) < 0) {
+					sizeof(struct sockaddr_in)) < 0) {
 				printf("SEND: ERROR - Couldn't send to socket\n");
+				die();
+			}
+			/* Check if termination message was sent */
+			if (sendStr[0] == '!') {
+				pthread_mutex_unlock(&mutex);
 				die();
 			}
 			printf("[Sent by you]\n\n");
@@ -286,5 +290,30 @@ void *ReceiveFromSocket(void *ptr) {
  * Terminates the program because of an error or because the user requested it.
  */
 void die() {
+	printf("\n***************************************************************\n");
+	printf("* Exiting s-talk...                                           *\n");
+	printf("***************************************************************\n\n");
+
+	/* Let other threads process any remaining messages */
+	sleep(3);
+
+	/* Cleanup  */
+	pthread_cancel(keyboardThread);
+	pthread_cancel(terminalThread);
+	pthread_cancel(sendThread);
+	pthread_cancel(receiveThread);
+
+	pthread_cond_destroy(&msg_avail_to_send);
+	pthread_cond_destroy(&rcvd_msg_avail);
+	pthread_mutex_destroy(&mutex);
+
+	close(sock);
+	ListFree(sendList, FreeItem);
+	ListFree(receiveList, FreeItem);
+
 	exit(0);
+}
+
+void FreeItem(void *item) {
+	free(item);
 }
