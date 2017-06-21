@@ -8,6 +8,8 @@
  * Imports                                                     *
  ***************************************************************/
 #include "keyboard.h"
+#include "list.h"
+#include <stdio.h>
 #include <unistd.h>
 
 /***************************************************************
@@ -19,12 +21,19 @@
 /***************************************************************
  * Statics                                                     *
  ***************************************************************/
-static char[BUF_SIZE] buffer;
+static char buffer[BUF_SIZE];
 
 /***************************************************************
  * Global Functions                                            *
  ***************************************************************/
 
+/* Infinite loop, read text from keyboard */
 int main(void) {
+	read(TERMINAL_FD, buffer, BUF_SIZE);
+	printf("The buffer contains: %s", buffer);
+	return 0;
+}
+
+void AcceptKeyboardInput() {
 	read(TERMINAL_FD, buffer, BUF_SIZE);
 }
