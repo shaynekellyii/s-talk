@@ -1,13 +1,18 @@
-CC = gcc
-CFLAGS = -g -Wall -Wextra -I -pthread
-PROG = s-talk
-OBJS = main.o list.o
+CFLAGS=-Wall 
+LDFLAGS=-pthread
+CC=gcc
+OBJECTS=main.o list.o
+TARGET=s-talk
 
-run: $(OBJS)
-	$(CC) $(CFLAGS) -o $(PROG) $(OBJS)
+all: $(TARGET)
 
-.c.o:
-	$(CC) $(CFLAGS) -c $*.c
+$(TARGET): $(OBJECTS)
+	$(CC) $(OBJECTS) -o $@ $(LDFLAGS)
+
+include depends
+
+depends:
+	$(CC) -MM $(OBJECTS:.o=.c) > depends
 
 clean:
-	rm *.o s-talk
+	rm ./$(TARGET) *.o
