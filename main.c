@@ -25,6 +25,7 @@
  ***************************************************************/
 #define BUF_SIZE	512
 #define TERMINAL_FD	0
+#define NUM_THREADS	4
 
 /***************************************************************
  * Statics                                                     *
@@ -42,6 +43,7 @@ static int remotePort;
 static struct sockaddr_in local_addr, remote_addr;
 static int sock;
 static pthread_t keyboardThread, terminalThread, sendThread, receiveThread;
+static int ready = 0;
 
 /***************************************************************
  * Global Functions                                            *
@@ -52,7 +54,6 @@ int main(int argc, char *argv[]) {
 	char *terminalMessage = "Terminal thread";
 	char *sendMessage = "Send thread";
 	char *receiveMessage = "Receive thread";
-	int iretKeyboard, iretTerminal, iretSend, iretReceive;
 
 	printf("\n***************************************************************\n");
 	printf("* Welcome to s-talk! Setting up your session now...           *\n");
@@ -80,13 +81,13 @@ int main(int argc, char *argv[]) {
 	InitSocket();
 
 	/* Create threads */
-	iretKeyboard = pthread_create(&keyboardThread, NULL, AcceptKeyboardInput, 
+	pthread_create(&keyboardThread, NULL, AcceptKeyboardInput, 
 		(void *)keyboardMessage);
-	iretTerminal = pthread_create(&terminalThread, NULL, PrintMessages,
+	pthread_create(&terminalThread, NULL, PrintMessages,
 		(void *)terminalMessage);
-	iretSend = pthread_create(&sendThread, NULL, SendToSocket,
+	pthread_create(&sendThread, NULL, SendToSocket,
 		(void *)sendMessage);
-	iretReceive = pthread_create(&receiveThread, NULL, ReceiveFromSocket,
+	pthread_create(&receiveThread, NULL, ReceiveFromSocket,
 		(void *)receiveMessage);
 
 	/* Join threads after they're done */
@@ -153,6 +154,7 @@ void *AcceptKeyboardInput(void *ptr) {
 
 	/* Infinite loop waiting for keyboard input */
 	printf("INIT: Ready for keyboard input.\n");
+	CheckIfThreadsReady();
 	while (1) {
 		/* I/O read is non-blocking, must check buffer is non-empty before continuing */
 		do {
@@ -184,6 +186,7 @@ void *PrintMessages(void *ptr) {
 	printf("INIT: Setting up output for received messages...\n");
 	fcntl(0, F_SETFL, fcntl(0, F_GETFL) | O_NONBLOCK);
 	printf("INIT: Ready to output received messages.\n");
+	CheckIfThreadsReady();
 
 	/**
 	 * Infinite loop waiting for messages to be received.
@@ -203,6 +206,7 @@ void *PrintMessages(void *ptr) {
 			/* Check if termination message was received */
 			if (writeStr[0] == '!') {
 				pthread_mutex_unlock(&mutex);
+				printf("%s quit the chat.\n", hostName);
 				die();
 			}
 		}
@@ -222,6 +226,7 @@ void *SendToSocket(void *ptr) {
 	ptr = (char *)ptr; /* Unused function param required by pthread functions */
 	printf("INIT: Setting up message sending to the remote connection...\n");
 	printf("INIT: Ready to send messages to the remote connection.\n");
+	CheckIfThreadsReady();
 
 	/* Infinite loop, waits for messages to send from keyboard thread */
 	while (1) {
@@ -262,6 +267,7 @@ void *ReceiveFromSocket(void *ptr) {
 	socklen_t slen = sizeof(struct sockaddr_in);
 	ptr = (char *)ptr; /* Unused function param required by pthread functions */
 	printf("INIT: Ready to receive messages from the remote connection.\n");
+	CheckIfThreadsReady();
 
 	/* Infinite loop, waits to receive messages from UDP socket */
 	while (1) {
@@ -316,4 +322,18 @@ void die() {
 
 void FreeItem(void *item) {
 	free(item);
+}
+
+void CheckIfThreadsReady() {
+	if (++ready == NUM_THREADS) {
+		PrintReadyMessage();
+	}
+}
+
+void PrintReadyMessage() {
+	printf("\n***************************************************************\n");
+	printf("* Ready to talk!                                              *\n");
+	printf("* Type a message, then press enter to send.                   *\n");
+	printf("* Type ! and press enter to quit.                             *\n");
+	printf("***************************************************************\n\n");
 }
